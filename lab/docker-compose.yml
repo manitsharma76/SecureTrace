@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  sender:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: python -m http.server 8000
+    ports:
+      - "8000:8000"
+
+  relay1:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: sleep 3600
+
+  relay2:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: sleep 3600
+
+  receiver:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: sleep 3600
+
+  attacker:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: sleep 3600
+    network_mode: "bridge"
+
+  collector:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: python -m http.server 9000
+    ports:
+      - "9000:9000"

@@ -7,7 +7,7 @@ Research project: cryptographic integrity checks (hop-chained HMAC) on a multi-h
 
 ## Status
 
-Planning only. No code exists yet. The layout, stack and commands below are the agreed targets from DEVELOPMENT_PLAN.md; check that a file or command exists before relying on it, and update this file as phases land.
+Phase 1 data pipeline and baselines are in place: loader with column harmonisation across the 2017/2018 releases, day-wise splits, five model families (`securetrace/models/factory.py`), metrics, and `scripts/train.py` logging to a local MLflow SQLite store. First 5-seed baseline table is done (`configs/phase1_public_baseline.yaml`, results in `data/processed/`). Open issues: the downloaded 2018 CSVs are the original CICFlowMeter output, not the corrected release (breaks the one-extractor rule, see the `_consistent_features` ablation config), and the lab (phase 2) is not started.
 
 ## Target layout
 

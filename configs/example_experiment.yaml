@@ -1,0 +1,19 @@
+seed: 42
+experiment_name: phase0_smoke
+tracking:
+  mlflow_uri: http://localhost:5000
+  experiment: securetrace-dev
+model:
+  family: xgboost
+  objective: binary:logistic
+  max_depth: 6
+  eta: 0.05
+  n_estimators: 200
+split:
+  by: day
+  public_train_days: [1, 2, 3]
+  public_test_day: 4
+  holdout_attack: "web"
+lab:
+  weak_label_window_seconds: 120
+  held_out_attack: "web"

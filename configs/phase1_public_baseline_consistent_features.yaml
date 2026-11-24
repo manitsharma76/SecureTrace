@@ -1,0 +1,58 @@
+# ABLATION of phase1_public_baseline.yaml: drops features whose meaning differs between the
+# corrected-2017 and original-2018 CICFlowMeter releases (flag counts, bulk, IAT min/max).
+# Chosen from label-free benign-flow statistics. Compare against the main config to see how much
+# of the cross-dataset gap is an extractor artefact.
+# Phase 1 / Q1: within-dataset vs cross-dataset gap, public data only.
+# Train on corrected CIC-IDS2017 Mon-Wed, tune the decision threshold on Thu,
+# test within-dataset on Fri, test cross-dataset on CSE-CIC-IDS2018 days.
+# Days are quoted strings (YYYY-MM-DD) so YAML does not turn them into dates.
+experiment_name: phase1_public_baseline_consistent_features
+seeds: [0, 1, 2, 3, 4]          # >= 5 seeds for any reported number
+tracking:
+  # Local SQLite store (gitignored). Override with a running server if you have one.
+  mlflow_uri: sqlite:///mlruns/mlflow.db
+  experiment: securetrace-phase1
+data:
+  public_csv_paths:
+    - data/raw/public/cic_ids_2017_corrected.csv
+    - data/raw/public/ids2018/Wednesday-14-02-2018_TrafficForML_CICFlowMeter.csv
+    - data/raw/public/ids2018/Thursday-15-02-2018_TrafficForML_CICFlowMeter.csv
+  label_col: Label
+  day_col: Day                  # only used if a file has a Day column; otherwise parsed from Timestamp
+  drop_attempted: true          # remove "... - Attempted" rows (ambiguous labels)
+  train_days: ["2017-07-03", "2017-07-04", "2017-07-05"]
+  val_days: ["2017-07-06"]
+  test_days: ["2017-07-07"]                       # within-dataset test
+  cross_test_days: ["2018-02-14", "2018-02-15"]   # cross-dataset tests, scored per day and pooled
+  drop_features:
+    - ACK Flag Count
+    - PSH Flag Count
+    - FIN Flag Count
+    - SYN Flag Count
+    - RST Flag Count
+    - URG Flag Count
+    - CWR Flag Count
+    - ECE Flag Count
+    - Fwd PSH Flags
+    - Bwd PSH Flags
+    - Fwd Bytes/Bulk Avg
+    - Fwd Packet/Bulk Avg
+    - Fwd Bulk Rate Avg
+    - Bwd Bytes/Bulk Avg
+    - Bwd Packet/Bulk Avg
+    - Bwd Bulk Rate Avg
+    - Flow IAT Min
+    - Flow IAT Max
+    - Fwd IAT Min
+    - Fwd IAT Max
+    - Bwd IAT Min
+    - Bwd IAT Max
+  max_train_rows: 300000        # seeded random subsample so slow families stay comparable
+metrics:
+  recalls: [0.90, 0.95]
+models:
+  logreg: {C: 1.0}
+  random_forest: {n_estimators: 150, min_samples_leaf: 2}
+  xgboost: {n_estimators: 200, max_depth: 6, eta: 0.05}
+  lightgbm: {n_estimators: 200, num_leaves: 63, eta: 0.05}
+  mlp: {hidden: [128, 64], max_iter: 60}

@@ -7,7 +7,7 @@ SecureTrace checks data integrity with cryptography at every checkpoint on a tra
 - **Cryptography answers:** did the data change, and on which segment?
 - **ML answers:** what suspicious network activity happened on that segment?
 
-> **Status: planning.** No code has been written yet. This README describes what the project will build. See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the schedule.
+> **Status: Phase 0 complete; Phase 1 underway.** The repo scaffold and public-data pipeline are in place, and the corrected CIC-IDS2017 and a two-day CSE-CIC-IDS2018 subset acquisition entrypoint are available. See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the schedule.
 
 ## Why
 
