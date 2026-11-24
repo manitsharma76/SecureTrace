@@ -131,9 +131,14 @@ services:
       segC_in: {ipv4_address: 172.28.31.66}
       segC_out: {ipv4_address: 172.28.32.66}
 
+  # tcpdump (live capture) + CICFlowMeter (ML features) + Zeek (dashboard conn.log) in one image.
+  # Capture is started per segment per session by the orchestrator; extraction runs afterward
+  # via `docker compose exec sensor python3 lab/sensors/extract.py ...` (lab/sensors/extract.py).
   sensor:
-    <<: *lab-image
-    command: sleep infinity          # tcpdump per segment bridge, started per session by the orchestrator
+    image: securetrace-sensor
+    build:
+      context: ..
+      dockerfile: lab/sensors/Dockerfile
     network_mode: host               # sees every seg*_in/out bridge of the lab VM; capture only
     cap_add: [NET_RAW, NET_ADMIN]
     volumes: ["../data/raw/lab/pcap:/pcap"]

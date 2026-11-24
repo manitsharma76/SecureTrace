@@ -1,0 +1,5 @@
+# Shell scripts and gradle wrappers must keep LF endings; CRLF breaks their shebang inside Linux
+# containers (hit while building lab/sensors/vendor/cicflowmeter on Windows).
+*.sh text eol=lf
+gradlew text eol=lf
+*.gradle text eol=lf
