@@ -1,6 +1,8 @@
+# PRIMARY Phase 1 / Q1 config. Every file comes from the same Zenodo record (corrected CICFlowMeter),
+# so one extractor is used throughout. No corrected CSE-CIC-IDS2018 CSV is published, hence InSDN.
 # Phase 1 / Q1: within-dataset vs cross-dataset gap, public data only.
 # Train on corrected CIC-IDS2017 Mon-Wed, tune the decision threshold on Thu,
-# test within-dataset on Fri, test cross-dataset on CSE-CIC-IDS2018 days.
+# test within-dataset on Fri, test cross-dataset on all of InSDN (a different SDN network).
 # Days are quoted strings (YYYY-MM-DD) so YAML does not turn them into dates.
 experiment_name: phase1_public_baseline
 seeds: [0, 1, 2, 3, 4]          # >= 5 seeds for any reported number
@@ -11,15 +13,14 @@ tracking:
 data:
   public_csv_paths:
     - data/raw/public/cic_ids_2017_corrected.csv
-    - data/raw/public/ids2018/Wednesday-14-02-2018_TrafficForML_CICFlowMeter.csv
-    - data/raw/public/ids2018/Thursday-15-02-2018_TrafficForML_CICFlowMeter.csv
+    - data/raw/public/insdn.csv
   label_col: Label
   day_col: Day                  # only used if a file has a Day column; otherwise parsed from Timestamp
   drop_attempted: true          # remove "... - Attempted" rows (ambiguous labels)
   train_days: ["2017-07-03", "2017-07-04", "2017-07-05"]
   val_days: ["2017-07-06"]
   test_days: ["2017-07-07"]                       # within-dataset test
-  cross_test_days: ["2018-02-14", "2018-02-15"]   # cross-dataset tests, scored per day and pooled
+  cross_datasets: {insdn: [insdn]}
   max_train_rows: 300000        # seeded random subsample so slow families stay comparable
 metrics:
   recalls: [0.90, 0.95]

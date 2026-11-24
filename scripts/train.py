@@ -37,18 +37,15 @@ def build_eval_sets(X, y, meta, data_cfg: dict) -> tuple[dict, dict]:
         val_days=data_cfg["val_days"],
         test_days=data_cfg["test_days"],
     )
-    cross_days = [str(d) for d in data_cfg.get("cross_test_days", [])]
-    used = set(map(str, data_cfg["train_days"])) | set(map(str, data_cfg["val_days"])) | set(map(str, data_cfg["test_days"]))
-    if used & set(cross_days):
-        raise ValueError("cross_test_days overlap with train/val/test days.")
-
+    # Cross-dataset targets: named groups of whole datasets (never overlapping the training days).
+    groups = data_cfg.get("cross_datasets", {})
+    train_val_test = {str(d) for key in ("train_days", "val_days", "test_days") for d in data_cfg[key]}
     eval_sets = {"val": (val_X, val_y), "within_2017": (within_X, within_y)}
-    for day in cross_days:
-        mask = meta["day"] == day
-        eval_sets[f"cross_{day}"] = (X.loc[mask], y.loc[mask])
-    if cross_days:
-        mask = meta["day"].isin(cross_days)
-        eval_sets["cross_all"] = (X.loc[mask], y.loc[mask])
+    for group, datasets in groups.items():
+        in_group = meta["dataset"].isin(datasets)
+        if meta.loc[in_group, "day"].isin(train_val_test).any():
+            raise ValueError(f"cross group '{group}' overlaps train/val/test days.")
+        eval_sets[f"cross_{group}"] = (X.loc[in_group], y.loc[in_group])
     for name, (features, labels) in {"train": (train_X, train_y), **eval_sets}.items():
         if features.empty:
             raise ValueError(f"Split '{name}' is empty; check the configured days against the data.")

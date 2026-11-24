@@ -1,12 +1,10 @@
-# ABLATION of phase1_public_baseline.yaml: drops features whose meaning differs between the
-# corrected-2017 and original-2018 CICFlowMeter releases (flag counts, bulk, IAT min/max).
-# Chosen from label-free benign-flow statistics. Compare against the main config to see how much
-# of the cross-dataset gap is an extractor artefact.
+# LEGACY sensitivity check, not a reportable Q1 result: the 2018 CSVs are the ORIGINAL (uncorrected)
+# CICFlowMeter output, so they break the one-extractor rule. Primary config: phase1_public_baseline.yaml.
 # Phase 1 / Q1: within-dataset vs cross-dataset gap, public data only.
 # Train on corrected CIC-IDS2017 Mon-Wed, tune the decision threshold on Thu,
 # test within-dataset on Fri, test cross-dataset on CSE-CIC-IDS2018 days.
 # Days are quoted strings (YYYY-MM-DD) so YAML does not turn them into dates.
-experiment_name: phase1_public_baseline_consistent_features
+experiment_name: phase1_public_baseline_ids2018_legacy
 seeds: [0, 1, 2, 3, 4]          # >= 5 seeds for any reported number
 tracking:
   # Local SQLite store (gitignored). Override with a running server if you have one.
@@ -23,30 +21,7 @@ data:
   train_days: ["2017-07-03", "2017-07-04", "2017-07-05"]
   val_days: ["2017-07-06"]
   test_days: ["2017-07-07"]                       # within-dataset test
-  cross_test_days: ["2018-02-14", "2018-02-15"]   # cross-dataset tests, scored per day and pooled
-  drop_features:
-    - ACK Flag Count
-    - PSH Flag Count
-    - FIN Flag Count
-    - SYN Flag Count
-    - RST Flag Count
-    - URG Flag Count
-    - CWR Flag Count
-    - ECE Flag Count
-    - Fwd PSH Flags
-    - Bwd PSH Flags
-    - Fwd Bytes/Bulk Avg
-    - Fwd Packet/Bulk Avg
-    - Fwd Bulk Rate Avg
-    - Bwd Bytes/Bulk Avg
-    - Bwd Packet/Bulk Avg
-    - Bwd Bulk Rate Avg
-    - Flow IAT Min
-    - Flow IAT Max
-    - Fwd IAT Min
-    - Fwd IAT Max
-    - Bwd IAT Min
-    - Bwd IAT Max
+  cross_datasets: {ids2018_original: [ids2018]}
   max_train_rows: 300000        # seeded random subsample so slow families stay comparable
 metrics:
   recalls: [0.90, 0.95]

@@ -7,7 +7,7 @@ Research project: cryptographic integrity checks (hop-chained HMAC) on a multi-h
 
 ## Status
 
-Phase 1 data pipeline and baselines are in place: loader with column harmonisation across the 2017/2018 releases, day-wise splits, five model families (`securetrace/models/factory.py`), metrics, and `scripts/train.py` logging to a local MLflow SQLite store. First 5-seed baseline table is done (`configs/phase1_public_baseline.yaml`, results in `data/processed/`). Open issues: the downloaded 2018 CSVs are the original CICFlowMeter output, not the corrected release (breaks the one-extractor rule, see the `_consistent_features` ablation config), and the lab (phase 2) is not started.
+Phase 1 data pipeline and baselines are in place: loader, day-wise splits, five model families (`securetrace/models/factory.py`), metrics, and `scripts/train.py` logging to a local MLflow SQLite store. Primary Q1 config is `configs/phase1_public_baseline.yaml`: train on corrected CIC-IDS2017, test within-dataset (Fri) and cross-dataset on InSDN, all from one Zenodo record so one corrected CICFlowMeter is used throughout. No corrected CSE-CIC-IDS2018 CSV is published, so the 2018 files (original CICFlowMeter) are kept only as the legacy sensitivity config `phase1_public_baseline_ids2018_legacy.yaml`, not for reported Q1 numbers. The lab (phase 2) is not started.
 
 ## Target layout
 

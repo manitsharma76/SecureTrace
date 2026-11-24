@@ -190,3 +190,19 @@ def test_metrics_perfect_and_single_class():
     assert fpr_at_recall(y, np.array([0.9, 0.8, 0.2, 0.1]), 0.9) == 1.0   # inverted scorer is useless
     only_benign = evaluate_scores(np.zeros(4), s, threshold=0.5)
     assert np.isnan(only_benign["pr_auc"])
+
+
+def test_insdn_is_detected_shares_all_columns_and_dedups_per_file(tmp_path):
+    cols = ["Src IP", "Timestamp", "Flow Duration", "Total Connection Flow Time", "Label"]
+    f17, sdn = tmp_path / "cic_ids_2017_corrected.csv", tmp_path / "insdn.csv"
+    _write(f17, cols, [["a", "2017-07-03 10:00:00.5", 5, 1, "BENIGN"]])
+    _write(sdn, cols, [
+        ["b", "2020-02-04 10:00:00.1", 9, 1, "DDoS"],
+        ["c", "2020-02-04 10:00:00.2", 9, 2, "DDoS"],   # differs only in a time-like column -> duplicate
+        ["d", "2020-02-04 10:00:00.3", 9, 3, "Normal"],
+    ])
+    X, y, meta = load_public_frame([f17, sdn])
+    assert list(X.columns) == ["Flow Duration"]
+    assert meta["dataset"].tolist() == ["ids2017", "insdn", "insdn"]
+    assert y.tolist() == [0, 1, 0]
+    assert meta["day"].tolist() == ["2017-07-03", "2020-02-04", "2020-02-04"]
