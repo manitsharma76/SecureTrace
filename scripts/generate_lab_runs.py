@@ -83,13 +83,22 @@ def kill_background(service: str, pattern: str) -> None:
     compose_exec(service, "pkill", "-f", pattern, check=False)
 
 
-def plan_session(rng: random.Random, hold_out_mutator: str | None) -> dict:
-    """One randomized session plan. `hold_out_mutator`, if set, is excluded (reserved for test)."""
+def plan_session(rng: random.Random, hold_out_mutator: str | None, tamper_idx: int | None = None) -> dict:
+    """One randomized session plan. `hold_out_mutator`, if set, is excluded (reserved for test).
+
+    `tamper_idx`, if given, cycles tamper segment and mutator evenly (segment varies fastest) so
+    the tampered segment is balanced across sessions: with small N a purely random choice skews
+    heavily and lets a segment-identity-only model beat chance (go/no-go control)."""
     available = [m for m in MUTATORS if m != hold_out_mutator] or list(MUTATORS)
     is_tamper = rng.random() < 0.6
+    if tamper_idx is None:
+        segment, mutator = rng.choice(SEGMENT_ORDER), rng.choice(available)
+    else:
+        segment = SEGMENT_ORDER[tamper_idx % len(SEGMENT_ORDER)]
+        mutator = available[(tamper_idx // len(SEGMENT_ORDER)) % len(available)]
     return {
-        "tamper_segment": rng.choice(SEGMENT_ORDER) if is_tamper else None,
-        "mutator": rng.choice(available) if is_tamper else None,
+        "tamper_segment": segment if is_tamper else None,
+        "mutator": mutator if is_tamper else None,
         "recon": is_tamper and rng.random() < 0.5,
         "n_messages": rng.randint(8, 25),
         "mean_gap": rng.uniform(0.15, 1.2),
@@ -181,6 +190,8 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--hold-out-mutator", choices=sorted(MUTATORS), default=None,
                         help="Exclude this mutator from generation (reserve it for the held-out attack-type test)")
+    parser.add_argument("--tamper-offset", type=int, default=0,
+                        help="Start of the segment/mutator cycle; use when appending to existing sessions")
     args = parser.parse_args()
 
     pcap_dir = args.out_dir / "pcap"
@@ -193,9 +204,12 @@ def main() -> int:
     disable_offloads()
     rng = random.Random(args.seed)
     manifests = []
+    tamper_count = 0
     for i in range(args.runs):
         run_id = f"gen{args.seed}-{i:04d}-{uuid.uuid4().hex[:6]}"
-        plan = plan_session(rng, args.hold_out_mutator)
+        plan = plan_session(rng, args.hold_out_mutator, tamper_idx=tamper_count + args.tamper_offset)
+        if plan["tamper_segment"] is not None:
+            tamper_count += 1
         print(f"[{i + 1}/{args.runs}] run={run_id} tamper={plan['tamper_segment']} mutator={plan['mutator']} "
               f"recon={plan['recon']} n={plan['n_messages']}")
         try:
