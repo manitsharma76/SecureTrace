@@ -35,7 +35,7 @@ def load_session_manifest(path: str | Path) -> dict:
         return json.load(handle)
 
 
-def _flow_csv_path(extracted_dir: Path, run_id: str, segment: str) -> Path:
+def flow_csv_path(extracted_dir: Path, run_id: str, segment: str) -> Path:
     return extracted_dir / f"{run_id}_seg{segment}.pcap_Flow.csv"
 
 
@@ -63,7 +63,7 @@ def load_session_true_labels(
 
     frames, metas = [], []
     for segment in ("A", "B", "C"):
-        csv_path = _flow_csv_path(extracted_dir, run_id, segment)
+        csv_path = flow_csv_path(extracted_dir, run_id, segment)
         if not csv_path.exists():
             continue
         frame = pd.read_csv(csv_path, low_memory=False)

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 from pathlib import Path
 
+import joblib
 import mlflow
 import numpy as np
 import pandas as pd
@@ -57,6 +59,9 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=Path("configs/phase1_public_baseline.yaml"))
     parser.add_argument("--families", nargs="*", default=None, help="Subset of model families (default: all in config).")
     parser.add_argument("--seeds", nargs="*", type=int, default=None, help="Override seeds (smoke runs only).")
+    parser.add_argument("--save-model", action="store_true",
+                        help="Save each (family, seed) model + its feature columns under data/processed/models/ "
+                             "for reuse (e.g. Phase 3's lab 'before' evaluation).")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -120,9 +125,31 @@ def main() -> int:
                 mlflow.log_param("train_days", ",".join(map(str, data_cfg["train_days"])))
                 mlflow.log_artifact(str(args.config))
                 model.fit(fit_X, fit_y)
+                # mlflow's sklearn flavor serializes with skops, which refuses to round-trip any
+                # type it doesn't recognize as a core sklearn class (e.g. XGBoost/LightGBM's own
+                # classes) unless explicitly trusted. These are our own project's model classes,
+                # not externally supplied, so trusting them here is safe.
+                mlflow.sklearn.log_model(
+                    model, name="model",
+                    skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier",
+                                         "lightgbm.basic.Booster", "lightgbm.sklearn.LGBMClassifier"],
+                )
 
                 threshold = select_threshold(val_y.to_numpy(), predict_attack_score(model, val_X))
                 mlflow.log_metric("threshold", threshold)
+
+                if args.save_model:
+                    model_dir = ROOT / "data" / "processed" / "models" / config.get("experiment_name", "phase1")
+                    model_dir.mkdir(parents=True, exist_ok=True)
+                    stem = model_dir / f"{family}_seed{seed}"
+                    joblib.dump(model, f"{stem}.joblib")
+                    (stem.with_suffix(".json")).write_text(
+                        json.dumps({
+                            "family": family, "seed": seed, "threshold": threshold,
+                            "feature_columns": list(fit_X.columns),
+                        }, indent=2),
+                        encoding="utf-8",
+                    )
                 for name, (features, labels) in eval_sets.items():
                     result = evaluate_scores(
                         labels.to_numpy(), predict_attack_score(model, features), threshold=threshold, recalls=recalls

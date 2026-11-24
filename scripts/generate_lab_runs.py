@@ -3,7 +3,7 @@
 Zeek conn.logs, integrity events/localization, and true per-message labels.
 
 Prerequisites: the lab is up (`docker compose --env-file .env -f lab/docker-compose.yml up -d
---build`) and NIC offloads are disabled on every service (see CLAUDE.md; not yet automated here).
+--build`); NIC offloads are disabled automatically at the start of main().
 
     python scripts/generate_lab_runs.py --runs 20 --out-dir data/raw/lab
 
@@ -63,6 +63,15 @@ def compose_exec(service: str, *args: str, detach: bool = False, check: bool = T
         cmd.append("-d")
     cmd += [service, *args]
     return subprocess.run(cmd, capture_output=True, text=True, check=check)
+
+
+def disable_offloads() -> None:
+    """Turn off TSO/GSO/GRO/LRO on every interface the sensor (host network) can see, so pcaps hold
+    real wire-size packets rather than coalesced super-frames. Idempotent; per-interface failures
+    (virtual devices without the feature) are ignored."""
+    script = ("for i in $(ls /sys/class/net); do "
+              "ethtool -K $i tso off gso off gro off lro off >/dev/null 2>&1; done; true")
+    compose_exec("sensor", "sh", "-c", script, check=False)
 
 
 def compose_exec_bg(service: str, *args: str) -> None:
@@ -181,6 +190,7 @@ def main() -> int:
     for directory in (pcap_dir, extracted_dir, ground_truth_dir, manifest_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
+    disable_offloads()
     rng = random.Random(args.seed)
     manifests = []
     for i in range(args.runs):

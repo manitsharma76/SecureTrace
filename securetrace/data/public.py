@@ -110,23 +110,36 @@ def load_public_frame(
     for index, (path, dataset) in enumerate(zip(csv_paths, datasets)):
         file_features: list[pd.DataFrame] = []
         file_meta: list[pd.DataFrame] = []
+        seen_hashes: set[int] = set()  # cross-chunk dedup without ever holding the whole file at once
         reader = pd.read_csv(
             path,
             low_memory=False,
-            chunksize=500_000,
+            chunksize=100_000,
             usecols=lambda c: IDS2018_TO_CANONICAL.get(c, c) in wanted,
         )
         for chunk in reader:
             features, meta = _clean_chunk(
-                harmonize_columns(chunk), shared, label_col, day_col, dataset, path, index, drop_attempted, deduplicate
+                harmonize_columns(chunk), shared, label_col, day_col, dataset, path, index, drop_attempted,
+                deduplicate=False,  # deduped across the whole file below, chunk by chunk
             )
+            if deduplicate and len(features):
+                # Hashing each row to one value (instead of pandas' .duplicated(), which
+                # factorizes every column at once) keeps memory low even on a ~90-column
+                # float32 frame; tracking seen hashes across chunks dedups the whole file
+                # without ever materializing it all in memory at once, which is what kept
+                # failing here on a memory-constrained host (see git history for the attempts).
+                row_hash = pd.util.hash_pandas_object(features, index=False) ^ pd.util.hash_array(
+                    meta["label"].to_numpy(dtype=object)
+                )
+                keep = np.empty(len(row_hash), dtype=bool)
+                for i, h in enumerate(row_hash.tolist()):
+                    keep[i] = h not in seen_hashes
+                    seen_hashes.add(h)
+                features, meta = features[keep], meta[keep]
             file_features.append(features)
             file_meta.append(meta)
         features = pd.concat(file_features, ignore_index=True)
         meta = pd.concat(file_meta, ignore_index=True)
-        if deduplicate:
-            keep = ~features.assign(_label=meta["label"]).duplicated(keep="first")
-            features, meta = features[keep], meta[keep]
         cleaned_frames.append(features)
         meta_frames.append(meta)
 

@@ -52,13 +52,26 @@ def flip_byte(payload: bytes, rng: random.Random) -> bytes:
 
 
 def rewrite_size(payload: bytes, rng: random.Random) -> bytes:
-    """Truncate or pad: changes the digest and the length a downstream flow extractor sees."""
-    if rng.random() < 0.5 and len(payload) > 16:
-        return payload[: rng.randint(len(payload) // 2, len(payload) - 1)]
-    return payload + rng.randbytes(rng.randint(16, 2048))
+    """Truncate or pad by a LARGE, consistent fraction: must move total bytes/packet-length
+    statistics outside the normal benign range, not just by a few bytes. The go/no-go check
+    (scripts/go_no_go_check.py) found that a modest size change (+/- a few KB) leaves almost no
+    separable trace in CICFlowMeter-level flow statistics; this trades realism for a footprint
+    the model can actually learn, which is the stated purpose of this control (DEVELOPMENT_PLAN.md
+    "biggest risk")."""
+    if rng.random() < 0.5 and len(payload) > 64:
+        # Truncate to 10-40% of the original: a large, consistent length/byte-count shift.
+        return payload[: max(16, int(len(payload) * rng.uniform(0.1, 0.4)))]
+    # Pad by 2-5x the original size.
+    return payload + rng.randbytes(int(len(payload) * rng.uniform(1.0, 4.0)) + 64)
 
 
 MUTATORS: dict[str, Mutator] = {"flip_byte": flip_byte, "rewrite_size": rewrite_size}
+
+# Per-chunk delay used ONLY on the segment actually being tampered with; pass-through segments use
+# a near-zero delay (see `run`) so relaying itself is not a confound -- the go/no-go check found
+# that applying the same pacing to every segment (tampered or not) makes relay-induced latency
+# indistinguishable between the two, erasing exactly the signal this is meant to add.
+TAMPER_PACE_S = 0.01
 
 
 class GroundTruthLog:
@@ -105,12 +118,18 @@ def make_handler(
                 header, payload = read_frame(self.request)
             except (ConnectionError, ValueError, KeyError):
                 return
-            if mutator is not None:
+            tampered = mutator is not None
+            if tampered:
                 payload = mutator(payload, rng)
-            ground_truth.record(header, tampered=mutator is not None, mutator_name=mutator_name)
+            ground_truth.record(header, tampered=tampered, mutator_name=mutator_name)
             try:
                 with socket.create_connection((downstream_host, downstream_port), timeout=10) as out:
-                    write_frame(out, header, payload, pace_s=pace_s)  # re-segmented here, by design
+                    if tampered:
+                        # Deliberately small chunks: a distinct re-segmentation footprint (more,
+                        # smaller packets) on top of the byte/length change from `mutator` itself.
+                        write_frame(out, header, payload, chunk=512, pace_s=pace_s)
+                    else:
+                        write_frame(out, header, payload, pace_s=0.0)  # near-transparent pass-through
                     ack = out.recv(1)
             except OSError:
                 ack = b"0"
@@ -143,7 +162,8 @@ def main() -> int:
     parser.add_argument("--downstream", required=True, help="Real downstream node, on the segment's _out network")
     parser.add_argument("--mutator", choices=sorted(MUTATORS), default=None, help="Omit to relay untouched")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--pace-s", type=float, default=0.0005, help="Per-chunk delay: added latency footprint")
+    parser.add_argument("--pace-s", type=float, default=TAMPER_PACE_S,
+                        help="Per-chunk delay applied only when tampering (pass-through is near-zero)")
     parser.add_argument("--listen-port", type=int, default=TRANSFER_PORT)
     parser.add_argument("--segment", default="?", help="A/B/C, recorded in the ground-truth log")
     parser.add_argument("--ground-truth-path", type=Path, default=None, help="JSONL path, e.g. /out/<run_id>.jsonl")
