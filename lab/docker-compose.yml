@@ -1,49 +1,142 @@
-version: "3.9"
+# SecureTrace lab. Path:  sender --A--> relay1 --B--> relay2 --C--> receiver
+#
+# Run from the repo root (keys come from the gitignored .env made by scripts/make_lab_env.py):
+#   docker compose --env-file .env -f lab/docker-compose.yml up -d --build
+#
+# Topology note: each logical segment (A, B, C) is split into two point-to-point Docker networks
+# (e.g. segA_in between sender and attacker, segA_out between attacker and relay1), so the
+# attacker is the only L2 peer either side can reach on that segment -- a real on-path node, not
+# an off-path spoofing attack. Pass-through mode (--mutator omitted) makes this functionally
+# identical to the two endpoints being directly connected. Tampering is done by
+# `python -m lab.attacker.proxy --mutator ...` on the chosen segment's listening port; no
+# iptables/ARP tricks are needed because the attacker already sits on the wire.
+#
+# Isolation: every data network is `internal` (no route out). The attacker has no key material
+# and is never attached to `ctl`, the network the signed integrity events travel over.
+name: securetrace-lab
+
+x-lab-image: &lab-image
+  image: securetrace-lab
+  build:
+    context: ..
+    dockerfile: lab/Dockerfile
+
+networks:
+  segA_in: &seg
+    internal: true
+    driver: bridge
+    ipam: {config: [{subnet: 172.28.11.0/24}]}
+  segA_out:
+    <<: *seg
+    ipam: {config: [{subnet: 172.28.12.0/24}]}
+  segB_in:
+    <<: *seg
+    ipam: {config: [{subnet: 172.28.21.0/24}]}
+  segB_out:
+    <<: *seg
+    ipam: {config: [{subnet: 172.28.22.0/24}]}
+  segC_in:
+    <<: *seg
+    ipam: {config: [{subnet: 172.28.31.0/24}]}
+  segC_out:
+    <<: *seg
+    ipam: {config: [{subnet: 172.28.32.0/24}]}
+  ctl:            # signed integrity events -> collector. The attacker is not on it.
+    internal: true
+    driver: bridge
+    ipam: {config: [{subnet: 172.28.9.0/24}]}
+  publish:        # only so the collector's port can be reached from the host (127.0.0.1 only)
+    driver: bridge
 
 services:
+  collector:
+    <<: *lab-image
+    command: uvicorn --factory lab.collector.app:app_from_env --host 0.0.0.0 --port 9000
+    environment:
+      SECURETRACE_SECRET_KEY: ${SECURETRACE_SECRET_KEY:?run scripts/make_lab_env.py}
+      LAB_KEY_A: ${LAB_KEY_A}
+      LAB_KEY_B: ${LAB_KEY_B}
+      LAB_KEY_C: ${LAB_KEY_C}
+      COLLECTOR_DB: /data/collector.db
+    volumes: [collector_data:/data]
+    networks: [ctl, publish]
+    ports: ["127.0.0.1:9000:9000"]
+
+  # NEXT_HOP for sender/relay1/relay2 is always the attacker's address on that segment's "_in"
+  # network: in pass-through mode (no tamper this run) the attacker just relays, so this has no
+  # effect on a clean session other than one extra TCP hop.
   sender:
-    image: python:3.11-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: python -m http.server 8000
-    ports:
-      - "8000:8000"
+    <<: *lab-image
+    command: sleep infinity          # driven by `docker compose exec` (lab.agents.sender / noise)
+    environment:
+      LAB_KEY_A: ${LAB_KEY_A}
+      EVENT_KEY_SENDER: ${EVENT_KEY_SENDER}
+      NEXT_HOP: 172.28.11.66
+      COLLECTOR_URL: http://collector:9000
+    networks:
+      segA_in: {ipv4_address: 172.28.11.11}
+      ctl: {}
 
   relay1:
-    image: python:3.11-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: sleep 3600
+    <<: *lab-image
+    command: python -m lab.agents.node --role relay1
+    environment:
+      LAB_KEY_A: ${LAB_KEY_A}
+      LAB_KEY_B: ${LAB_KEY_B}
+      EVENT_KEY_RELAY1: ${EVENT_KEY_RELAY1}
+      NEXT_HOP: 172.28.21.66
+      COLLECTOR_URL: http://collector:9000
+    networks:
+      segA_out: {ipv4_address: 172.28.12.12}
+      segB_in: {ipv4_address: 172.28.21.11}
+      ctl: {}
 
   relay2:
-    image: python:3.11-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: sleep 3600
+    <<: *lab-image
+    command: python -m lab.agents.node --role relay2
+    environment:
+      LAB_KEY_B: ${LAB_KEY_B}
+      LAB_KEY_C: ${LAB_KEY_C}
+      EVENT_KEY_RELAY2: ${EVENT_KEY_RELAY2}
+      NEXT_HOP: 172.28.31.66
+      COLLECTOR_URL: http://collector:9000
+    networks:
+      segB_out: {ipv4_address: 172.28.22.12}
+      segC_in: {ipv4_address: 172.28.31.11}
+      ctl: {}
 
   receiver:
-    image: python:3.11-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: sleep 3600
+    <<: *lab-image
+    command: python -m lab.agents.node --role receiver
+    environment:
+      LAB_KEY_C: ${LAB_KEY_C}
+      EVENT_KEY_RECEIVER: ${EVENT_KEY_RECEIVER}
+      COLLECTOR_URL: http://collector:9000
+    networks:
+      segC_out: {ipv4_address: 172.28.32.12}
+      ctl: {}
 
+  # On-path on all three segments at once (one address per "_in"/"_out" pair). A session targets
+  # one segment by starting `lab.attacker.proxy` on that segment's pair; the other two segments
+  # pass through untouched because nothing is listening/redirecting on them.
   attacker:
-    image: python:3.11-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: sleep 3600
-    network_mode: "bridge"
+    <<: *lab-image
+    command: sleep infinity          # driven per-session: python -m lab.attacker.proxy --downstream ... --listen-port ...
+    volumes: ["../data/raw/lab/attacker:/out"]
+    networks:                        # no keys, no env, no control network
+      segA_in: {ipv4_address: 172.28.11.66}
+      segA_out: {ipv4_address: 172.28.12.66}
+      segB_in: {ipv4_address: 172.28.21.66}
+      segB_out: {ipv4_address: 172.28.22.66}
+      segC_in: {ipv4_address: 172.28.31.66}
+      segC_out: {ipv4_address: 172.28.32.66}
 
-  collector:
-    image: python:3.11-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: python -m http.server 9000
-    ports:
-      - "9000:9000"
+  sensor:
+    <<: *lab-image
+    command: sleep infinity          # tcpdump per segment bridge, started per session by the orchestrator
+    network_mode: host               # sees every seg*_in/out bridge of the lab VM; capture only
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes: ["../data/raw/lab/pcap:/pcap"]
+
+volumes:
+  collector_data:

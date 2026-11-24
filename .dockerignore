@@ -1,0 +1,10 @@
+.env
+.env.*
+.git
+.venv
+data
+mlruns
+tests
+**/__pycache__
+*.pcap
+*.pcapng
