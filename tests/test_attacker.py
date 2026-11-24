@@ -4,7 +4,7 @@ import threading
 import time
 
 from lab.agents.wire import read_frame, write_frame
-from lab.attacker.proxy import MUTATORS, flip_byte, make_handler, rewrite_size
+from lab.attacker.proxy import MUTATORS, GroundTruthLog, flip_byte, make_handler, rewrite_size
 
 RNG_SEED = 0
 
@@ -70,7 +70,8 @@ def test_relay_forwards_payload_to_downstream_untouched_when_no_mutator():
     downstream_port, relay_port = 18100, 18101
     received = _downstream_echo(downstream_port)
     time.sleep(0.05)
-    handler = make_handler("127.0.0.1", downstream_port, mutator=None, seed=RNG_SEED, pace_s=0.0)
+    handler = make_handler("127.0.0.1", downstream_port, mutator=None, seed=RNG_SEED, pace_s=0.0,
+                           ground_truth=GroundTruthLog(None, "A", "r"), mutator_name=None)
     _run_relay(handler, relay_port)
     time.sleep(0.05)
 
@@ -86,7 +87,8 @@ def test_relay_applies_mutator_before_forwarding():
     downstream_port, relay_port = 18110, 18111
     received = _downstream_echo(downstream_port)
     time.sleep(0.05)
-    handler = make_handler("127.0.0.1", downstream_port, mutator=flip_byte, seed=RNG_SEED, pace_s=0.0)
+    handler = make_handler("127.0.0.1", downstream_port, mutator=flip_byte, seed=RNG_SEED, pace_s=0.0,
+                           ground_truth=GroundTruthLog(None, "A", "r"), mutator_name="flip_byte")
     _run_relay(handler, relay_port)
     time.sleep(0.05)
 
@@ -97,3 +99,23 @@ def test_relay_applies_mutator_before_forwarding():
     time.sleep(0.1)
     assert received[0] != original
     assert len(received[0]) == len(original)
+
+
+def test_ground_truth_log_records_tampered_and_clean_messages(tmp_path):
+    path = tmp_path / "run1.jsonl"
+    log = GroundTruthLog(path, segment="B", run_id="run1")
+    log.record({"run_id": "run1", "msg_id": "m0"}, tampered=False, mutator_name=None)
+    log.record({"run_id": "run1", "msg_id": "m1"}, tampered=True, mutator_name="flip_byte")
+
+    import json
+
+    lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert lines[0] == {"run_id": "run1", "msg_id": "m0", "segment": "B", "tampered": False, "mutator": None,
+                         "ts": lines[0]["ts"]}
+    assert lines[1]["tampered"] is True
+    assert lines[1]["mutator"] == "flip_byte"
+
+
+def test_ground_truth_log_is_a_noop_without_a_path():
+    log = GroundTruthLog(None, segment="A", run_id="r")
+    log.record({"run_id": "r", "msg_id": "m"}, tampered=True, mutator_name="flip_byte")  # must not raise

@@ -29,10 +29,13 @@ congestion-control state, and re-segmentation of the payload into this process's
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import socket
 import socketserver
+import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 from lab.agents.wire import TRANSFER_PORT, read_frame, write_frame
@@ -58,7 +61,42 @@ def rewrite_size(payload: bytes, rng: random.Random) -> bytes:
 MUTATORS: dict[str, Mutator] = {"flip_byte": flip_byte, "rewrite_size": rewrite_size}
 
 
-def make_handler(downstream_host: str, downstream_port: int, mutator: Mutator | None, seed: int, pace_s: float):
+class GroundTruthLog:
+    """Append-only JSONL of what this attacker instance actually did to each message it handled.
+
+    This is the TRUE label source (DEVELOPMENT_PLAN.md: "The lab records true per-flow labels...
+    used only to score the weak-label methods"). It is written by the attacker, kept out of the
+    collector/HMAC path entirely, and must never be used to train the ML model -- only to
+    evaluate how well the integrity-derived weak labels recover it.
+    """
+
+    def __init__(self, path: Path | None, segment: str, run_id: str | None):
+        self._path = path
+        self._segment = segment
+        self._run_id = run_id
+        self._lock = threading.Lock()
+
+    def record(self, header: dict, tampered: bool, mutator_name: str | None) -> None:
+        if self._path is None:
+            return
+        entry = {
+            "run_id": self._run_id or header.get("run_id"),
+            "msg_id": header.get("msg_id"),
+            "segment": self._segment,
+            "tampered": tampered,
+            "mutator": mutator_name if tampered else None,
+            "ts": time.time(),
+        }
+        line = json.dumps(entry, separators=(",", ":"))
+        with self._lock:
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+
+
+def make_handler(
+    downstream_host: str, downstream_port: int, mutator: Mutator | None, seed: int, pace_s: float,
+    ground_truth: GroundTruthLog, mutator_name: str | None,
+):
     rng = random.Random(seed)
 
     class Handler(socketserver.BaseRequestHandler):
@@ -69,6 +107,7 @@ def make_handler(downstream_host: str, downstream_port: int, mutator: Mutator | 
                 return
             if mutator is not None:
                 payload = mutator(payload, rng)
+            ground_truth.record(header, tampered=mutator is not None, mutator_name=mutator_name)
             try:
                 with socket.create_connection((downstream_host, downstream_port), timeout=10) as out:
                     write_frame(out, header, payload, pace_s=pace_s)  # re-segmented here, by design
@@ -87,10 +126,12 @@ class Server(socketserver.ThreadingTCPServer):
 
 def run(
     listen_host: str, downstream_host: str, mutator_name: str | None, seed: int, pace_s: float,
-    port: int = TRANSFER_PORT,
+    port: int = TRANSFER_PORT, *, segment: str = "?", ground_truth_path: Path | None = None,
+    run_id: str | None = None,
 ) -> None:
     mutator = MUTATORS[mutator_name] if mutator_name else None
-    handler = make_handler(downstream_host, TRANSFER_PORT, mutator, seed, pace_s)
+    ground_truth = GroundTruthLog(ground_truth_path, segment, run_id)
+    handler = make_handler(downstream_host, TRANSFER_PORT, mutator, seed, pace_s, ground_truth, mutator_name)
     print(f"attacker relay on {listen_host}:{port} -> {downstream_host}:{TRANSFER_PORT}, mutator={mutator_name}",
           flush=True)
     Server((listen_host, port), handler).serve_forever()
@@ -104,8 +145,12 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--pace-s", type=float, default=0.0005, help="Per-chunk delay: added latency footprint")
     parser.add_argument("--listen-port", type=int, default=TRANSFER_PORT)
+    parser.add_argument("--segment", default="?", help="A/B/C, recorded in the ground-truth log")
+    parser.add_argument("--ground-truth-path", type=Path, default=None, help="JSONL path, e.g. /out/<run_id>.jsonl")
+    parser.add_argument("--run-id", default=None)
     args = parser.parse_args()
-    run(args.listen, args.downstream, args.mutator, args.seed, args.pace_s, args.listen_port)
+    run(args.listen, args.downstream, args.mutator, args.seed, args.pace_s, args.listen_port,
+        segment=args.segment, ground_truth_path=args.ground_truth_path, run_id=args.run_id)
     return 0
 
 
