@@ -123,7 +123,7 @@ def build_session_weak_labels(
 
         frames.append(frame)
         metas.append(pd.DataFrame({"run_id": run_id, "segment": segment, "bag_key": bag_keys, "weak_positive": weak,
-                                   "flow_start": start.to_numpy()}))
+                                   "flow_start": start.to_numpy(), "flow_end": end.to_numpy()}))
 
     if not frames:
         raise ValueError(f"No non-empty flow CSVs found for run {run_id} under {extracted_dir}")

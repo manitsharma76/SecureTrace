@@ -99,7 +99,7 @@ def load_session_true_labels(
         frames.append(frame)
         metas.append(pd.DataFrame({
             "run_id": run_id, "segment": segment, "label": frame.get("Label", "NeedManualLabel"),
-            "true_malicious": pd.array(label, dtype="boolean"),
+            "true_malicious": pd.array(label, dtype="boolean"), "flow_start": start.to_numpy(),
         }))
 
     if not frames:

@@ -1,0 +1,17 @@
+# Phase 6 / Q4 (Novelty B): localization + calibrated fusion vs ML-only and time-window alerting.
+# The scoring model is the Phase 4 XGBoost adapted with weak labels (naive, the Phase 4 winner).
+experiment_name: phase6_fusion
+seeds: [0, 1, 2, 3, 4]
+split_seed: 0
+tracking:
+  mlflow_uri: sqlite:///mlruns/mlflow.db
+  experiment: securetrace-phase6
+paths:
+  model_dir: data/processed/models/phase1_public_baseline
+  sessions_dir: data/raw/lab/sessions
+  extracted_dir: data/raw/lab/pcap/extracted
+  out_dir: data/processed
+held_out_mutators: [flip_byte, rewrite_size]
+window_seconds: 2.0
+alert_threshold: 0.5           # applied to the (calibrated) probability
+ks: [5, 10]
