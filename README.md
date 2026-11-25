@@ -7,7 +7,7 @@ SecureTrace checks data integrity with cryptography at every checkpoint on a tra
 - **Cryptography answers:** did the data change, and on which segment?
 - **ML answers:** what suspicious network activity happened on that segment?
 
-> **Status: Phase 0 complete; Phase 1 underway.** The repo scaffold and public-data pipeline are in place, and the corrected CIC-IDS2017 and a two-day CSE-CIC-IDS2018 subset acquisition entrypoint are available. See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the schedule.
+> **Status: all phases (0-7) complete.** See [FINAL_REPORT.md](FINAL_REPORT.md) for results, verification and limitations. Lab traffic is synthetic; results do not carry over to a real network without validation there.
 
 ## Why
 

@@ -1,0 +1,84 @@
+{
+  "run_id": "gen31-0000-55f2a3",
+  "localized_segment": "B",
+  "integrity_evidence": {
+    "A": {
+      "digest_changed": false,
+      "tag_changed": false,
+      "verify_failed": false,
+      "emitter_tag_matches_collector_key": true
+    },
+    "B": {
+      "digest_changed": true,
+      "tag_changed": false,
+      "verify_failed": true,
+      "emitter_tag_matches_collector_key": true
+    },
+    "C": {
+      "digest_changed": false,
+      "tag_changed": false,
+      "verify_failed": false,
+      "emitter_tag_matches_collector_key": true
+    }
+  },
+  "n_failed_messages": 20,
+  "alerts": [
+    {
+      "flow_row": 65,
+      "calibrated_probability": 1.0,
+      "true_malicious": 1,
+      "top_features_treeshap": [
+        [
+          "Bwd Segment Payload Length Std",
+          2.6407532691955566
+        ],
+        [
+          "Bwd Packet Length Std",
+          -1.8726314306259155
+        ],
+        [
+          "Bwd Init Win Bytes",
+          -1.6494433879852295
+        ]
+      ]
+    },
+    {
+      "flow_row": 75,
+      "calibrated_probability": 1.0,
+      "true_malicious": 1,
+      "top_features_treeshap": [
+        [
+          "Bwd Packet Length Std",
+          -2.10764479637146
+        ],
+        [
+          "Bwd Init Win Bytes",
+          -1.7397310733795166
+        ],
+        [
+          "Bwd Segment Payload Length Std",
+          1.4636030197143555
+        ]
+      ]
+    },
+    {
+      "flow_row": 53,
+      "calibrated_probability": 1.0,
+      "true_malicious": 1,
+      "top_features_treeshap": [
+        [
+          "Bwd Packet Length Std",
+          -2.113574266433716
+        ],
+        [
+          "Bwd Init Win Bytes",
+          -1.7403792142868042
+        ],
+        [
+          "Bwd Segment Payload Length Std",
+          1.4632904529571533
+        ]
+      ]
+    }
+  ]
+}
