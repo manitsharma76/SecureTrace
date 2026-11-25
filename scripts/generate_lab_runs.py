@@ -209,6 +209,9 @@ def main() -> int:
                         help="Exclude this mutator from generation (reserve it for the held-out attack-type test)")
     parser.add_argument("--tamper-offset", type=int, default=0,
                         help="Start of the segment/mutator cycle; use when appending to existing sessions")
+    parser.add_argument("--force-tamper", choices=list(SEGMENT_ORDER), default=None,
+                        help="Make every session tamper this segment (end-to-end verification)")
+    parser.add_argument("--force-mutator", choices=sorted(MUTATORS), default="rewrite_size")
     args = parser.parse_args()
 
     pcap_dir = args.out_dir / "pcap"
@@ -226,6 +229,8 @@ def main() -> int:
     for i in range(args.runs):
         run_id = f"gen{args.seed}-{i:04d}-{uuid.uuid4().hex[:6]}"
         plan = plan_session(rng, args.hold_out_mutator, tamper_idx=tamper_count + args.tamper_offset)
+        if args.force_tamper:
+            plan.update(tamper_segment=args.force_tamper, mutator=args.force_mutator)
         if plan["tamper_segment"] is not None:
             tamper_count += 1
         print(f"[{i + 1}/{args.runs}] run={run_id} tamper={plan['tamper_segment']} mutator={plan['mutator']} "
