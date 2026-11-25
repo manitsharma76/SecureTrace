@@ -1,0 +1,26 @@
+# Phase 5 / Q3: label-free comparators against weak-label adaptation (Phase 4), same lab split,
+# same seeds, same held-out mutators, same true-label scoring (evaluation only).
+experiment_name: phase5_label_free
+seeds: [0, 1, 2, 3, 4]
+split_seed: 0
+tracking:
+  mlflow_uri: sqlite:///mlruns/mlflow.db
+  experiment: securetrace-phase5
+paths:
+  public_config: configs/phase1_public_baseline.yaml
+  model_dir: data/processed/models/phase1_public_baseline
+  sessions_dir: data/raw/lab/sessions
+  extracted_dir: data/raw/lab/pcap/extracted
+  interim_dir: data/interim
+  out_csv: data/processed/phase5_results.csv
+held_out_mutators: [flip_byte, rewrite_size]
+weak_window_seconds: 2.0         # only for the "best combination" arms that use weak labels
+public_sample_rows: 40000        # labelled public flows used as the domain-adaptation source
+methods:
+  - iforest                      # anomaly detection, lab train flows unlabelled
+  - autoencoder
+  - coral                        # unsupervised domain adaptation public -> lab
+  - dann
+  - ssl_public_head              # SCARF encoder pretrained on lab flows, classifier head from public data
+  - ssl_weak_finetune            # best combination: SSL-pretrained encoder + weak-label fine-tuning
+  - scratch_weak_finetune        # control for the line above: same net, random init, same weak labels

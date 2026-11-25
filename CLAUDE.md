@@ -33,6 +33,12 @@ Caveat: the footprint was made large enough to be learnable; flip_byte tampering
 - Label efficiency: XGBoost saturates already at 25% of the tampered training sessions (about 3 sessions); the neural methods need all of them (gain near 0 at 25-50%). With only 18 training sessions these curves are coarse.
 - Caveats: lab traffic is synthetic; test sessions share the lab, attacker implementation and noise generator with training, so these numbers do not show transfer to a real network. The `rewrite_size` footprint was deliberately enlarged. Claim Novelty A only as a variant/combination of prior PU/MIL work.
 
+**Phase 5 done (label-free comparators, Q3).** `securetrace/unsup/` (isolation forest + autoencoder on unlabelled lab train flows; SCARF-style contrastive pretraining; CORAL; DANN), `scripts/compare_unsup_lab.py --config configs/phase5_label_free.yaml` (same lab split, 5 seeds, both held-out mutators, MLflow `securetrace-phase5`, `data/processed/phase5_results.csv`), `scripts/summarize_phase5.py`. Domain-adaptation source = 40k labelled public training-day flows; columns the lab never populates are dropped for these methods. PR-AUC, mean over 5 seeds (flip_byte / rewrite_size held out; attack rate about 0.18-0.19; public model before: MLP 0.35 / 0.35, XGBoost 0.22 / 0.24):
+- Label-free: isolation forest 0.21 / 0.27, autoencoder 0.22 / 0.33, CORAL 0.19 / 0.20, SSL encoder + public-data head 0.14 / 0.18 (below chance), DANN 0.31 / 0.45 (best label-free but very unstable, 95% CI about +/-0.25). None reliably beats the unadapted public model.
+- Weak-label adaptation (Phase 4): 0.8-0.9 for naive XGBoost/MLP. So integrity-derived weak labels beat every label-free comparator here by a wide margin.
+- "Best combination" (SCARF-pretrained encoder + weak-label fine-tune) 0.80 / 0.83 vs the same network from random init 0.81 / 0.84: SSL pretraining contributes nothing measurable (paired difference -0.010 +/- 0.022 and -0.013 +/- 0.031). The scratch network also matches Phase 4's public-initialised fine-tune, so with this much weak-labelled lab data the public pretraining is not what drives the gain.
+- Caveats: anomaly detectors were fit on lab flows contaminated with attacks (nothing says which are clean); only 18 training sessions; the optional GRU/transformer sequence-model stretch was NOT done. Comparators were not hyper-parameter tuned, so "label-free methods fail" means these off-the-shelf configurations fail on this small synthetic lab, not that the methods cannot work.
+
 ## Target layout
 
 ```text
