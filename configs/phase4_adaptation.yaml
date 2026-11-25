@@ -1,0 +1,34 @@
+# Phase 4 / Q2 (Novelty A): adapt the public-data model with integrity-derived weak labels.
+# Only WEAK labels (bags opened by integrity failures) are used for training; true lab labels score
+# the lab TEST split only. One attack type (mutator) is held out of train/val, test sees it.
+experiment_name: phase4_adaptation
+seeds: [0, 1, 2, 3, 4]          # >= 5 seeds; model seed i adapts the public model of seed i
+split_seed: 0
+tracking:
+  mlflow_uri: sqlite:///mlruns/mlflow.db
+  experiment: securetrace-phase4
+paths:
+  model_dir: data/processed/models/phase1_public_baseline
+  sessions_dir: data/raw/lab/sessions
+  extracted_dir: data/raw/lab/pcap/extracted
+  out_csv: data/processed/phase4_results.csv
+held_out_mutators: [flip_byte, rewrite_size]    # both reported; neither is privileged
+main:
+  window_seconds: 2.0
+  tamper_fraction: 1.0
+  # (family, mode) pairs; each also run with shuffled weak labels as the control that must fail
+  methods:
+    - [xgboost, naive]
+    - [xgboost, elkan_noto]
+    - [mlp, naive]
+    - [mlp, nnpu]
+    - [mlp, mil]
+    - [mlp, nnpu_lf]      # ablation: prior = labelled fraction (SCAR violated, see CLAUDE.md)
+    - [mlp, mil_lf]
+sweeps:                          # run only for the PU/MIL methods, unshuffled
+  window_seconds: [0.5, 10.0]
+  tamper_fraction: [0.25, 0.5]
+  methods:
+    - [xgboost, elkan_noto]
+    - [mlp, nnpu]
+    - [mlp, mil]
