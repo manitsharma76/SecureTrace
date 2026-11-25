@@ -28,7 +28,7 @@ def _flow_csv(path, rows, label="NeedManualLabel"):
     out = []
     for ts, duration_us in rows:
         out.append({"Flow ID": "a-b-1-2-6", "Src IP": "1.1.1.1", "Dst IP": "2.2.2.2", "Src Port": 1,
-                    "Dst Port": 2, "Timestamp": ts, "Flow Duration": duration_us,
+                    "Dst Port": 9100, "Timestamp": ts, "Flow Duration": duration_us,
                     "Total Fwd Packet": 10, "Label": label})
     pd.DataFrame(out).to_csv(path, index=False)
 

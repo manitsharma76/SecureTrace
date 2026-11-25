@@ -125,15 +125,10 @@ def main() -> int:
                 mlflow.log_param("train_days", ",".join(map(str, data_cfg["train_days"])))
                 mlflow.log_artifact(str(args.config))
                 model.fit(fit_X, fit_y)
-                # mlflow's sklearn flavor serializes with skops, which refuses to round-trip any
-                # type it doesn't recognize as a core sklearn class (e.g. XGBoost/LightGBM's own
-                # classes) unless explicitly trusted. These are our own project's model classes,
-                # not externally supplied, so trusting them here is safe.
-                mlflow.sklearn.log_model(
-                    model, name="model",
-                    skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier",
-                                         "lightgbm.basic.Booster", "lightgbm.sklearn.LGBMClassifier"],
-                )
+                # skops (mlflow's default) rejects our own pipeline classes (SignedLog1p, numpy
+                # dtypes, ...) one allowlist entry at a time. These are this project's own models
+                # trained in this process, not externally supplied, so use cloudpickle.
+                mlflow.sklearn.log_model(model, name="model", serialization_format="cloudpickle")
 
                 threshold = select_threshold(val_y.to_numpy(), predict_attack_score(model, val_X))
                 mlflow.log_metric("threshold", threshold)

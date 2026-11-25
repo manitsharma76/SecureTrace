@@ -54,7 +54,6 @@ COLLECTOR_URL = "http://127.0.0.1:9000"
 SEGMENT_IN_ADDR = {"A": "172.28.11.66", "B": "172.28.21.66", "C": "172.28.31.66"}
 SEGMENT_OUT_ADDR = {"A": "172.28.12.66", "B": "172.28.22.66", "C": "172.28.32.66"}
 DOWNSTREAM_ADDR = {"A": "172.28.12.12", "B": "172.28.22.12", "C": "172.28.32.12"}  # relay1/relay2/receiver
-NOISE_TARGETS = {"A": "172.28.12.12", "B": "172.28.22.12", "C": "172.28.32.12"}
 
 
 def compose_exec(service: str, *args: str, detach: bool = False, check: bool = True) -> subprocess.CompletedProcess:
@@ -72,6 +71,16 @@ def disable_offloads() -> None:
     script = ("for i in $(ls /sys/class/net); do "
               "ethtool -K $i tso off gso off gro off lro off >/dev/null 2>&1; done; true")
     compose_exec("sensor", "sh", "-c", script, check=False)
+
+
+def start_benign_servers() -> None:
+    """Listeners for the benign noise clients on the attacker node. Noise has to cross the same
+    point-to-point segment networks the transfer traffic does (the sender can only reach the
+    attacker's in-side address), otherwise it is never captured and every lab flow is a transfer
+    flow, which makes weak-label bags trivially pure. The relays/receiver already run their own
+    listeners. Idempotent: a second listener fails to bind and exits."""
+    compose_exec_bg("attacker", "python", "-m", "lab.agents.benign_servers")
+    time.sleep(1.0)
 
 
 def compose_exec_bg(service: str, *args: str) -> None:
@@ -135,10 +144,18 @@ def run_session(run_id: str, plan: dict, pcap_dir: str, ground_truth_dir: str) -
     compose_exec("sensor", "python3", "lab/sensors/capture.py", "start", "--run-id", run_id,
                  "--pcap-dir", pcap_dir)
     time.sleep(0.5)
-    compose_exec_bg("sender", "python", "-m", "lab.agents.noise", "--target", NOISE_TARGETS["A"],
-                    "--duration", str(plan["noise_duration"]), "--seed", str(plan["noise_seed"]))
-    compose_exec_bg("relay1", "python", "-m", "lab.agents.noise", "--target", NOISE_TARGETS["B"],
-                    "--duration", str(plan["noise_duration"]), "--seed", str(plan["noise_seed"] + 1))
+    # Benign noise on every segment, both sides of the attacker: in-side clients (sender/relay1/
+    # relay2 -> the attacker's address on their segment) and out-side clients (attacker -> the
+    # real downstream node), so each segment's capture holds noise flows next to transfer flows.
+    duration = str(plan["noise_duration"])
+    in_clients = {"A": "sender", "B": "relay1", "C": "relay2"}
+    for i, segment in enumerate(SEGMENT_ORDER):
+        compose_exec_bg(in_clients[segment], "python", "-m", "lab.agents.noise",
+                        "--target", SEGMENT_IN_ADDR[segment], "--duration", duration,
+                        "--seed", str(plan["noise_seed"] + i))
+        compose_exec_bg("attacker", "python", "-m", "lab.agents.noise",
+                        "--target", DOWNSTREAM_ADDR[segment], "--duration", duration,
+                        "--seed", str(plan["noise_seed"] + 10 + i))
 
     compose_exec("sender", "python", "-m", "lab.agents.sender", "--run-id", run_id,
                  "--n", str(plan["n_messages"]), "--seed", str(plan["sender_seed"]),
@@ -148,8 +165,8 @@ def run_session(run_id: str, plan: dict, pcap_dir: str, ground_truth_dir: str) -
     compose_exec("sensor", "python3", "lab/sensors/capture.py", "stop", "--run-id", run_id,
                  "--pcap-dir", pcap_dir)
     kill_background("attacker", "lab.attacker.proxy")
-    kill_background("sender", "lab.agents.noise")
-    kill_background("relay1", "lab.agents.noise")
+    for service in ("sender", "relay1", "relay2", "attacker"):
+        kill_background(service, "lab.agents.noise")
 
 
 def extract_features(run_id: str, pcap_dir: str, out_dir: str) -> None:
@@ -202,6 +219,7 @@ def main() -> int:
         directory.mkdir(parents=True, exist_ok=True)
 
     disable_offloads()
+    start_benign_servers()
     rng = random.Random(args.seed)
     manifests = []
     tamper_count = 0
@@ -218,8 +236,8 @@ def main() -> int:
         except subprocess.CalledProcessError as exc:
             print(f"  FAILED: {exc.stderr or exc}", file=sys.stderr)
             kill_background("attacker", "lab.attacker.proxy")
-            kill_background("sender", "lab.agents.noise")
-            kill_background("relay1", "lab.agents.noise")
+            for service in ("sender", "relay1", "relay2", "attacker"):
+                kill_background(service, "lab.agents.noise")
             continue
 
         localizations = fetch_localizations(run_id)

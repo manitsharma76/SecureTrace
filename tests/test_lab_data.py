@@ -18,7 +18,7 @@ def _write_flow_csv(path, timestamps_and_durations, label="NeedManualLabel"):
     for ts, duration_us in timestamps_and_durations:
         rows.append({
             "Flow ID": "a-b-1-2-6", "Src IP": "1.1.1.1", "Dst IP": "2.2.2.2", "Src Port": 1,
-            "Dst Port": 2, "Timestamp": ts, "Flow Duration": duration_us,
+            "Dst Port": 9100, "Timestamp": ts, "Flow Duration": duration_us,
             "Total Fwd Packet": 10, "Label": label,
         })
     pd.DataFrame(rows).to_csv(path, index=False)
@@ -110,3 +110,23 @@ def test_load_sessions_true_labels_concatenates_and_keeps_shared_columns(tmp_pat
     X, y, meta = load_sessions_true_labels([m1, m2], tmp_path)
     assert len(X) == 2
     assert set(meta["run_id"]) == {"run5", "run6"}
+
+
+def test_concurrent_noise_flow_in_tamper_window_is_not_malicious(tmp_path):
+    import datetime
+
+    manifest_path = tmp_path / "run9.json"
+    _write_manifest(manifest_path, "run9", [
+        {"run_id": "run9", "msg_id": "m0", "segment": "B", "tampered": True, "mutator": "flip_byte",
+         "ts": 1700000000.0},
+    ])
+    ts = datetime.datetime.utcfromtimestamp(1700000000.0).strftime("%Y-%m-%d %H:%M:%S.%f")
+    rows = [
+        {"Flow ID": "t", "Src IP": "1.1.1.1", "Dst IP": "2.2.2.2", "Src Port": 40000, "Dst Port": 9100,
+         "Timestamp": ts, "Flow Duration": 500_000, "Total Fwd Packet": 10, "Label": "NeedManualLabel"},
+        {"Flow ID": "n", "Src IP": "1.1.1.1", "Dst IP": "2.2.2.2", "Src Port": 40001, "Dst Port": 8080,
+         "Timestamp": ts, "Flow Duration": 500_000, "Total Fwd Packet": 10, "Label": "NeedManualLabel"},
+    ]
+    pd.DataFrame(rows).to_csv(tmp_path / "run9_segB.pcap_Flow.csv", index=False)
+    _, y, _ = load_session_true_labels(manifest_path, tmp_path)
+    assert y.tolist() == [True, False]

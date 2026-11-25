@@ -93,7 +93,7 @@ def main() -> int:
         score = model.predict_proba(X_aligned)[:, 1]
         result = evaluate_scores(y_test.to_numpy().astype(int), score, threshold=model_meta["threshold"],
                                  recalls=(0.90,))
-        rows.append({"family": args.family, "seed": seed, **result})
+        rows.append({"family": args.family, "held_out_mutator": args.held_out_mutator, "seed": seed, **result})
 
     results = pd.DataFrame(rows)
     print("\n'Before' numbers (public-data model, no lab adaptation, true lab labels for scoring only):")
@@ -103,7 +103,17 @@ def main() -> int:
 
     out_dir = ROOT / "data" / "processed"
     out_dir.mkdir(parents=True, exist_ok=True)
-    results.to_csv(out_dir / "phase3_before_numbers.csv", index=False)
+    # Append, replacing earlier rows for the same (family, held-out mutator, seed), so one file
+    # accumulates the whole grid of families x held-out choices.
+    out_path = out_dir / "phase3_before_numbers.csv"
+    if out_path.exists():
+        previous = pd.read_csv(out_path)
+        if {"family", "held_out_mutator", "seed"} <= set(previous.columns):
+            key = ["family", "held_out_mutator", "seed"]
+            merged = previous.merge(results[key].drop_duplicates(), on=key, how="left", indicator=True)
+            previous = previous[merged["_merge"].eq("left_only").to_numpy()]
+            results = pd.concat([previous, results], ignore_index=True)
+    results.to_csv(out_path, index=False)
     return 0
 
 

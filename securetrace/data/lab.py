@@ -29,6 +29,18 @@ from securetrace.features.schema import drop_identity_features, harmonize_column
 # clock/parsing slack without blurring across unrelated messages (session gaps are >> this).
 WINDOW_MARGIN_SECONDS = 1.0
 
+# The attacker only relays the transfer protocol (lab/agents/wire.py TRANSFER_PORT); benign noise
+# runs on other ports. A flow is only truly malicious if it is transfer traffic near a tampered
+# message, so concurrent noise flows in the same window stay benign. Without this, a time-only
+# rule would label that noise malicious and make bag precision 1.0 by construction.
+TRANSFER_PORT = 9100
+
+
+def _is_transfer_flow(frame: pd.DataFrame) -> pd.Series:
+    src = pd.to_numeric(frame["Src Port"], errors="coerce")
+    dst = pd.to_numeric(frame["Dst Port"], errors="coerce")
+    return ((src == TRANSFER_PORT) | (dst == TRANSFER_PORT)).fillna(False)
+
 
 def load_session_manifest(path: str | Path) -> dict:
     with Path(path).open("r", encoding="utf-8") as handle:
@@ -78,9 +90,10 @@ def load_session_true_labels(
         end = start + duration_s
 
         tamper_times = _tamper_windows(manifest["ground_truth"], segment)
+        is_transfer = _is_transfer_flow(frame).tolist()
         label = [
-            _flow_is_near_any(s, e, tamper_times, margin_seconds) if pd.notna(s) else False
-            for s, e in zip(start, end)
+            bool(t) and _flow_is_near_any(s, e, tamper_times, margin_seconds) if pd.notna(s) else False
+            for s, e, t in zip(start, end, is_transfer)
         ]
 
         frames.append(frame)
