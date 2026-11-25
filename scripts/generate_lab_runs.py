@@ -135,15 +135,21 @@ def start_attacker_relays(run_id: str, plan: dict, ground_truth_dir: str) -> Non
 
 
 def run_session(run_id: str, plan: dict, pcap_dir: str, ground_truth_dir: str) -> None:
+    # "STEP:" lines are parsed by the dashboard's live demo (securetrace.fusion.live) to show progress.
+    print(f"STEP: Starting the on-path attacker on segments A, B, C (tampering on "
+          f"{plan['tamper_segment'] or 'no segment'}, mutator {plan['mutator'] or 'none'})", flush=True)
     start_attacker_relays(run_id, plan, ground_truth_dir)
     if plan["recon"]:
+        print("STEP: Attacker recon: benign-shaped probing of the other segments", flush=True)
         targets = [a for seg, a in SEGMENT_IN_ADDR.items() if seg != plan["tamper_segment"]]
         compose_exec("attacker", "python", "-m", "lab.attacker.recon", "--targets", *targets,
                      "--duration", "3", check=False)
 
+    print("STEP: Starting packet capture on every segment", flush=True)
     compose_exec("sensor", "python3", "lab/sensors/capture.py", "start", "--run-id", run_id,
                  "--pcap-dir", pcap_dir)
     time.sleep(0.5)
+    print("STEP: Starting benign background traffic on every segment", flush=True)
     # Benign noise on every segment, both sides of the attacker: in-side clients (sender/relay1/
     # relay2 -> the attacker's address on their segment) and out-side clients (attacker -> the
     # real downstream node), so each segment's capture holds noise flows next to transfer flows.
@@ -157,10 +163,13 @@ def run_session(run_id: str, plan: dict, pcap_dir: str, ground_truth_dir: str) -
                         "--target", DOWNSTREAM_ADDR[segment], "--duration", duration,
                         "--seed", str(plan["noise_seed"] + 10 + i))
 
+    print(f"STEP: Sender sends {plan['n_messages']} hop-chained messages; every node reports signed integrity "
+          f"events to the collector", flush=True)
     compose_exec("sender", "python", "-m", "lab.agents.sender", "--run-id", run_id,
                  "--n", str(plan["n_messages"]), "--seed", str(plan["sender_seed"]),
                  "--mean-gap", str(plan["mean_gap"]))
 
+    print("STEP: Traffic finished; stopping capture", flush=True)
     time.sleep(1.0)  # let in-flight traffic finish before capture stops
     compose_exec("sensor", "python3", "lab/sensors/capture.py", "stop", "--run-id", run_id,
                  "--pcap-dir", pcap_dir)
@@ -170,6 +179,7 @@ def run_session(run_id: str, plan: dict, pcap_dir: str, ground_truth_dir: str) -
 
 
 def extract_features(run_id: str, pcap_dir: str, out_dir: str) -> None:
+    print("STEP: Extracting flow features with CICFlowMeter", flush=True)
     compose_exec("sensor", "python3", "lab/sensors/extract.py", "--pcap-dir", pcap_dir,
                  "--out-dir", out_dir, "--run-id", run_id)
 
@@ -211,6 +221,7 @@ def main() -> int:
                         help="Start of the segment/mutator cycle; use when appending to existing sessions")
     parser.add_argument("--force-tamper", choices=list(SEGMENT_ORDER), default=None,
                         help="Make every session tamper this segment (end-to-end verification)")
+    parser.add_argument("--force-clean", action="store_true", help="Make every session a clean (no tamper) one")
     parser.add_argument("--force-mutator", choices=sorted(MUTATORS), default="rewrite_size")
     args = parser.parse_args()
 
@@ -231,6 +242,8 @@ def main() -> int:
         plan = plan_session(rng, args.hold_out_mutator, tamper_idx=tamper_count + args.tamper_offset)
         if args.force_tamper:
             plan.update(tamper_segment=args.force_tamper, mutator=args.force_mutator)
+        elif args.force_clean:
+            plan.update(tamper_segment=None, mutator=None, recon=False)
         if plan["tamper_segment"] is not None:
             tamper_count += 1
         print(f"[{i + 1}/{args.runs}] run={run_id} tamper={plan['tamper_segment']} mutator={plan['mutator']} "
@@ -245,6 +258,7 @@ def main() -> int:
                 kill_background(service, "lab.agents.noise")
             continue
 
+        print("STEP: Collector verifies the hash-chained log and localizes each tamper", flush=True)
         localizations = fetch_localizations(run_id)
         ground_truth = read_ground_truth(ground_truth_dir, run_id)
         manifest = {
@@ -258,6 +272,7 @@ def main() -> int:
         (manifest_dir / f"{run_id}.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         manifests.append(manifest)
 
+        print(f"STEP: Session saved ({run_id})", flush=True)
         tampered_msgs = sum(1 for e in ground_truth if e["tampered"])
         localized_tamper = sum(1 for v in localizations.values() if v.get("status") == "tamper")
         print(f"  ground truth: {tampered_msgs} tampered / {len(ground_truth)} msgs; "

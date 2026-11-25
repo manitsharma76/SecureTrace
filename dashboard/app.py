@@ -1,21 +1,19 @@
-"""SecureTrace dashboard: Integrity | ML risk | Tampered segment | Fused alert.
+"""SecureTrace dashboard.
 
-    python scripts/build_dashboard_bundle.py          # once: trains the served model
+    python scripts/build_dashboard_bundle.py     # once: trains the served model
     streamlit run dashboard/app.py
 
-Reads the collector (http://127.0.0.1:9000, `docker compose -f lab/docker-compose.yml up`) when it
-is reachable and otherwise the saved session manifests, so it also works offline. Lab traffic is
-synthetic; nothing here shows how the system behaves on a real network. True labels appear only in
-columns marked "evaluation only" and never feed a score.
+Tabs: Session explorer (four clickable cards -> hop-chain view, per-flow SHAP, counterfactuals),
+Live demo (real attack in the Docker lab, or an offline simulator), Trust & controls, How it works,
+Limitations. Reads the collector when reachable and saved sessions otherwise. Lab traffic is
+synthetic; nothing here shows how the system behaves on a real network.
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
-import pandas as pd
 import requests
 import streamlit as st
 
@@ -23,100 +21,91 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from securetrace.data.lab import load_session_manifest  # noqa: E402
-from securetrace.fusion.service import (  # noqa: E402
-    fused_alert, integrity_summary, load_bundle, score_session, session_localization,
-)
-
-BUNDLE = Path(os.environ.get("SECURETRACE_BUNDLE", ROOT / "data/processed/models/dashboard/bundle.joblib"))
-SESSIONS = Path(os.environ.get("SECURETRACE_SESSIONS", ROOT / "data/raw/lab/sessions"))
-EXTRACTED = Path(os.environ.get("SECURETRACE_EXTRACTED", ROOT / "data/raw/lab/pcap/extracted"))
-COLLECTOR = os.environ.get("SECURETRACE_COLLECTOR", "http://127.0.0.1:9000")
-THRESHOLD = 0.5
+from dashboard import about, data, demo, explorer, trust  # noqa: E402
+from dashboard.theme import HELP, caveat  # noqa: E402
+from securetrace.fusion.live import lab_available  # noqa: E402
 
 st.set_page_config(page_title="SecureTrace", layout="wide")
 
 
-@st.cache_resource
-def _bundle():
-    return load_bundle(BUNDLE)
-
-
-def _collector_log_check() -> dict | None:
+def _log_check(lab_up: bool) -> dict | None:
+    if not lab_up:
+        return None
     try:
-        r = requests.get(f"{COLLECTOR}/log/verify", timeout=2)
+        r = requests.get(f"{data.COLLECTOR}/log/verify", timeout=2)
         return r.json() if r.ok else None
     except requests.RequestException:
         return None
 
 
-def _manifest_path(run_id: str) -> Path:
-    return next(p for p in SESSIONS.glob("*.json") if p.stem == run_id)
-
-
 st.title("SecureTrace")
-st.caption("Hop-chained integrity checks locate the tampered segment and focus an ML intrusion model. "
-           "Synthetic lab traffic only; results do not carry over to a real network.")
+st.caption("Hop-chained integrity checks locate the tampered segment and focus an ML intrusion model.")
+caveat()
 
-if not BUNDLE.exists():
-    st.error(f"No model bundle at {BUNDLE}. Run `python scripts/build_dashboard_bundle.py` first.")
+if not data.BUNDLE.exists():
+    st.error(f"No model bundle at {data.BUNDLE}. Run `python scripts/build_dashboard_bundle.py` first.")
     st.stop()
-bundle = _bundle()
+bundle = data.bundle()
+lab_up = lab_available(data.COLLECTOR)
+
+# A finished live demo asks to be opened: apply it before the sidebar widgets are created.
+for _key, _default in (("group_filter", ["held-out test"]), ("verdict_filter", "all"), ("segment_filter", []), ("mutator_filter", "all")):
+    st.session_state.setdefault(_key, _default)
+pending = st.session_state.pop("pending_run", None)
+if pending:
+    st.session_state["group_filter"] = sorted(set(st.session_state["group_filter"]) | {"live demo"})
+    st.session_state["verdict_filter"], st.session_state["segment_filter"], st.session_state["mutator_filter"] = "all", [], "all"
+    st.session_state["run_pick"] = pending
+
+refs, catalog = data.session_catalog(data.demo_stamp(), tuple(bundle["test_run_ids"]))
+ref_by_id = {r.run_id: r for r in refs}
 
 with st.sidebar:
+    st.header("Controls")
+    threshold = st.slider("Alert threshold", 0.05, 0.95, 0.5, 0.05, help=HELP["threshold"])
+    window = st.select_slider("Weak-label window (s)", options=data.WINDOWS, value=bundle["window_seconds"], help=HELP["window"])
     st.header("Session")
-    default_ids = [r for r in bundle["test_run_ids"] if (SESSIONS / f"{r}.json").exists()]
-    show_all = st.checkbox("Include sessions the model trained on", value=False)
-    ids = sorted(p.stem for p in SESSIONS.glob("*.json")) if show_all else sorted(default_ids)
-    run_id = st.selectbox("Run", ids)
-    st.caption(f"Model: XGBoost adapted with weak labels; held-out attack: {bundle['held_out_mutator']}.")
-    live = _collector_log_check()
-    st.write("Collector:", "live" if live is not None else "offline (using saved sessions)")
+    groups = st.multiselect("Sessions from", ["held-out test", "live demo", "trained on"], key="group_filter",
+                            help="'held-out test' sessions were never seen by the served model.")
+    verdict = st.radio("Integrity verdict", ["all", "tamper detected", "no tamper detected"], key="verdict_filter",
+                       help="Observed by the integrity layer, not ground truth.")
+    segs = st.multiselect("Located segment", ["A", "B", "C"], key="segment_filter", help="Segment the integrity layer blamed.")
+    mutator = st.selectbox("Attack type (attacker plan, evaluation only)", ["all", "flip_byte", "rewrite_size"], key="mutator_filter",
+                           help=HELP["eval_only"])
+    sub = catalog[catalog.group.isin(groups)] if len(catalog) else catalog
+    if verdict != "all":
+        sub = sub[sub.integrity_verdict == verdict]
+    if segs:
+        sub = sub[sub.integrity_segment.isin(segs)]
+    if mutator != "all":
+        sub = sub[sub["plan_mutator (evaluation only)"] == mutator]
+    ids = list(sub.run_id)
+    if not ids:
+        st.warning("No sessions match these filters.")
+    run_id = st.selectbox(f"Run ({len(ids)} match)", ids, key="run_pick") if ids else None
+    st.caption(f"Model: XGBoost adapted with weak labels; held-out attack type: {bundle['held_out_mutator']}.")
+    st.write("Lab collector:", "**live**" if lab_up else "**offline** (saved sessions only)")
 
-manifest = load_session_manifest(_manifest_path(run_id))
-flows, X = score_session(_manifest_path(run_id), EXTRACTED, bundle, bundle["window_seconds"])
-summary = integrity_summary(manifest)
-loc = session_localization(manifest)
-alert = fused_alert(manifest, flows, X, bundle, THRESHOLD)
+tab_explore, tab_demo, tab_trust, tab_how, tab_limits = st.tabs(
+    ["Session explorer", "Live demo", "Trust & controls", "How it works", "Limitations"])
 
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.subheader("1. Integrity")
-    counts = summary["message_status"]
-    st.metric("Messages verified", summary["n_messages"])
-    st.dataframe(pd.DataFrame({"status": list(counts), "messages": list(counts.values())}), hide_index=True)
-    chain = live if live is not None else summary["log_integrity"]
-    st.write("Event-log hash chain:", "intact" if chain.get("ok") else "BROKEN")
-with c2:
-    st.subheader("2. ML risk")
-    per_seg = flows.groupby("segment").agg(flows=("risk", "size"), max_risk=("risk", "max"),
-                                           flows_above_threshold=("risk", lambda s: int((s >= THRESHOLD).sum())))
-    st.dataframe(per_seg.round(3))
-    st.bar_chart(per_seg["flows_above_threshold"])
-    st.caption(f"ML-only alerts in this session: {alert['ml_only_alerts']} (threshold {THRESHOLD}).")
-with c3:
-    st.subheader("3. Tampered segment")
-    if loc is None:
-        st.success("No tamper detected by the integrity layer.")
+ctx = {"bundle": bundle, "threshold": threshold, "window": window, "lab_up": lab_up}
+with tab_explore:
+    if run_id is None:
+        st.info("Choose a session in the sidebar, or run one in the Live demo tab.")
     else:
-        st.error(f"Tamper localized to segment {loc['segment']} ({loc['n_failed_messages']} failed messages)")
-        ev = pd.DataFrame(loc["evidence"]).T
-        st.dataframe(ev)
-    truth = manifest["plan"]["tamper_segment"]
-    st.caption(f"Attacker ground truth (evaluation only): {truth or 'no tamper'}")
-with c4:
-    st.subheader("4. Fused alert")
-    if alert["localization"] is None:
-        st.info("No integrity failure, so no fused alert is raised.")
+        ref = ref_by_id[run_id]
+        flows, X = data.scored(str(ref.manifest_path), str(ref.extracted_dir), window, bundle)
+        ctx.update(ref=ref, manifest=data.manifest(str(ref.manifest_path)), flows=flows, X=X, log_check=_log_check(lab_up))
+        explorer.render(ctx)
+with tab_demo:
+    demo.render(ctx)
+with tab_trust:
+    if "flows" in ctx:
+        trust.render(ctx)
     else:
-        st.write(f"Segment **{alert['localization']['segment']}**, ranked by calibrated risk. "
-                 f"Fused alerts above threshold: {alert['fused_alerts_above_threshold']} "
-                 f"(ML-only: {alert['ml_only_alerts']}, any-segment time window: {alert['window_alerts']}).")
-
-if alert["alerts"]:
-    st.subheader("Top flows on the tampered segment")
-    st.dataframe(pd.DataFrame([{
-        "flow": a["flow_row"], "segment": a["segment"], "risk": round(a["risk"], 3),
-        "top features (TreeSHAP)": ", ".join(f"{n} ({v:+.2f})" for n, v in a["top_features"]),
-        "malicious (evaluation only)": a["true_malicious_eval_only"],
-    } for a in alert["alerts"]]), hide_index=True)
+        st.info("Select a session to see the trust panels.")
+with tab_how:
+    about.render_how()
+with tab_limits:
+    about.render_limits()

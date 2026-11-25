@@ -20,7 +20,7 @@ SecureTrace puts hop-chained HMACs on a multi-hop transfer path. A failed check 
 | Weak-label adaptation: naive, Elkan-Noto, nnPU, attention-MIL | `securetrace/adapt/` |
 | Label-free comparators: anomaly detection, SCARF, CORAL, DANN | `securetrace/unsup/` |
 | Calibration, alerting modes, TreeSHAP, fused alert | `securetrace/fusion/` |
-| Dashboard (Integrity, ML risk, Tampered segment, Fused alert) | `dashboard/app.py` |
+| Interactive dashboard: four clickable panels, hop-chain "why this segment", per-flow TreeSHAP and counterfactuals, alert-mode comparison, calibration/label-quality/shuffled-label control views, live demo (real attack in the lab) and an offline tamper simulator | `dashboard/`, `securetrace/fusion/{explain,simulator,live,control}.py`; demo script in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) |
 | One-command rerun and verification | `scripts/run_all.py`, `scripts/verify_project.py`, `scripts/verify_end_to_end.py` |
 
 ## Results
